@@ -1,0 +1,36 @@
+# Python virtual environment
+.venv/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# JetBrains IDE
+.idea/
+
+# Claude Code session settings
+.claude/
+
+# SQLite databases
+*.db
+*.sqlite3
+
+# ChromaDB persistent data (generated at runtime)
+memory/
+kb/
+knowledge/chroma.sqlite3
+knowledge/e4dc8dcb-bf20-42e2-9a40-72fcf5d07d18/
+
+# Sub-project: 资源搜索 - virtual env, config, data
+资源搜索/.venv/
+资源搜索/.claude/
+资源搜索/data/
+资源搜索/__pycache__/
+
+# OS files
+Thumbs.db
+.DS_Store
