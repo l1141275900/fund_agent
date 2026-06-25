@@ -4,7 +4,7 @@
 
 LLM + Tool Calling + 向量数据库 + 结构化数据的 Agent 学习项目。
 
-![header](.\docs\header.png)
+![header](docs/header.png)
 
 ## 技术栈
 
