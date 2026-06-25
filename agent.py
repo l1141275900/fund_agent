@@ -14,6 +14,10 @@ import asyncio
 import functools
 from dataclasses import dataclass, field
 from env import BASE_DIR
+from sqlite_db.fund_collection import FundCollectionClient
+import akshare_func.main as akshare_func
+from tool_memory import ToolResultMemory, summarize_data
+from sqlite_db.chat_history import ChatHistoryClient
 
 logger = logging.getLogger("agent")
 
@@ -49,12 +53,15 @@ class FundAgent:
         self.memory = AgentMemory()
         self.knowledge_base = KnowledgeInit()
         self.tavily_client = TavilyClient(TAVILY_API_KEY)
+        self.tool_memory = ToolResultMemory()
+        self.chat_history = ChatHistoryClient()
 
         self.llm = OpenAI(
             api_key=DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com"
         )
         self.platform_list = self._load_platforms()
+        self.fund_collection_client = FundCollectionClient()
         self.tools:list[Tool] = [
             Tool(
                 name="search",
@@ -91,6 +98,87 @@ class FundAgent:
                 handler=self.agent_add_preference,
                 properties={"query": {"type": "string", "description": "用户偏好"}},
                 required=["query"]
+            ),
+            Tool(
+                name="get_all_funds",
+                description="获取用户目前持有的所有基金数据",
+                handler=self.fund_collection_client.query_all_funds,
+                properties={},
+                required=[]
+            ),
+            Tool(
+                name="get_funds_by_code",
+                description="根据基金代码查询用户持有的基金数据，若用户未持有该基金，则返回空列表",
+                handler=self.fund_collection_client.query_funds_by_code,
+                properties={"code": {"type": "string", "description": "基金代码"}},
+                required=["code"]
+            ),
+            Tool(
+                name="insert_one_fund_by_code",
+                description="使用基金代码将基金数据插入到用户持有的数据库中，当你需要更新用户持有的基金数据时使用",
+                handler=self.fund_collection_client.insert_one_fund_by_code,
+                properties={"fund_code": {"type": "string", "description": "基金代码"}},
+                required=["fund_code"]
+            ),
+            Tool(
+                name="get_akshare_fund_nav",
+                description="获取指定基金的净值历史",
+                handler=akshare_func.get_akshare_fund_nav,
+                properties={"fund_code": {"type": "string", "description": "基金代码"}},
+                required=["fund_code"]
+            ),
+            Tool(
+                name="get_akshare_rank_by_type",
+                description="根据基金类型获取对应的基金排名，参数可选值：全部、股票型、混合型、债券型、指数型、QDII、FOF，若返回值为空则说明参数错误",
+                handler=akshare_func.get_akshare_rank_by_type,
+                properties={"fund_type": {"type": "string", "description": "基金类型，可选值：全部、股票型、混合型、债券型、指数型、QDII、FOF"}},
+                required=["fund_type"]
+            ),
+            Tool(
+                name="get_akshare_data_by_code",
+                description="根据基金代码获取akshare基金数据，若基金代码不存在则返回空字典",
+                handler=akshare_func.get_akshare_data_by_code,
+                properties={"fund_code": {"type": "string", "description": "基金代码"}},
+                required=["fund_code"]
+            ),
+            Tool(
+                name="get_fund_holdings",
+                description="获取指定基金的持仓股票信息",
+                handler=akshare_func.get_akshare_hold,
+                properties={"fund_code": {"type": "string", "description": "基金代码"},
+                            "date": {"type": "string", "description": "报告期，如'2024'或'2025'，默认为2026"}},
+                required=["fund_code"]
+            ),
+            Tool(
+                name="retrieve_tool_data",
+                description="从临时内存中检索之前工具调用返回的大量数据切片。当数据量过大被自动切片存储后，用此工具按自然语言查询条件检索相关切片。",
+                handler=self.retrieve_tool_data,
+                properties={
+                    "query": {"type": "string", "description": "自然语言检索查询，描述需要从已存储数据中查找什么"},
+                    "top_k": {"type": "integer", "description": "返回切片数量，默认5"}
+                },
+                required=["query"]
+            ),
+            Tool(
+                name="get_akshare_stock_fund_flow",
+                description="获取股票或板块的行业排行，了解当前市场关注焦点(东方财富网-沪深板块-行业板块-历史行情)",
+                handler=akshare_func.get_akshare_stock_fund_flow,
+                properties={},
+                required=[]
+            ),
+            Tool(
+                name="get_akshare_hot_rank",
+                description="获取股票或板块的热度排行，了解当前市场关注焦点，了解“聪明钱”流向",
+                handler=akshare_func.get_akshare_hot_rank,
+                properties={},
+                required=[]
+            ),
+            Tool(
+                name="get_akshare_sw_index_third_info",
+                description="获取申万三级行业的整体估值数据，如静态市盈率、TTM市盈率、市净率、股息率等，方便横向对比",
+                handler=akshare_func.get_akshare_sw_index_third_info,
+                properties={},
+                required=[]
             )
         ]
 
@@ -144,50 +232,50 @@ class FundAgent:
                     platforms.append(parts[2].strip())
         return platforms
 
-    # def _build_tools(self) -> list[dict]:
-    #     """生成 OpenAI tools 参数"""
-    #     return [{
-    #         "type": "function",
-    #         "function": {
-    #             "name": "search",
-    #             "description": "使用搜索引擎检索信息",
-    #             "parameters": {
-    #                 "type": "object",
-    #                 "properties": {
-    #                     "query": {"type": "string", "description": "搜索关键词"}
-    #                 },
-    #                 "required": ["query"]
-    #             }
-    #         }
-    #     }
+    def retrieve_tool_data(self, session_id: str, query: str, top_k: int = 5) -> str:
+        """从临时内存中检索已存储的工具数据切片。"""
+        results = self.tool_memory.retrieve(session_id, query, top_k)
+        if not results:
+            return "未在临时内存中找到相关数据，可能已被释放或数据不存在。"
+        return "\n---\n".join(results)
 
-    # def _tool_handlers(self) -> dict:
-    #     """返回 '工具名 → 方法' 的映射，替代原来的 func_mach 字典"""
-    #     return {
-    #         "search": self.search,
-    #         "get_time": self.get_time,
-    #         "get_news": self.get_news,
-    #         "agent_add_preference": self.agent_add_preference,
-    #         "knowledge_retriever": self.knowledge_base.knowledge_retriever,
-    #     }
     def _tool_handlers(self,tool_name):
         for tool_obj in self.tools:
             if tool_obj.name == tool_name:
                 return tool_obj.handler
         raise KeyError(f"LLM请求了错误的工具:{tool_name}")
 
+    @staticmethod
+    def _should_chunk(raw_data) -> bool:
+        """判断工具返回数据是否需要切片存储。"""
+        if raw_data is None:
+            return False
+        if isinstance(raw_data, list) and len(raw_data) > ToolResultMemory.LARGE_LIST_THRESHOLD:
+            return True
+        if isinstance(raw_data, str) and len(raw_data) > ToolResultMemory.LARGE_STR_THRESHOLD:
+            return True
+        return False
+
     async def _safe_execute_func(self,handler:Callable,params:dict):
         try:
             func = functools.partial(handler,**params)
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, func)         # loop.run_in_executor的前面如果有await，则会阻塞主线程，直到func执行完毕，并返回执行结果，而若没有await，则会立即返回一个Future对象，等待后续被调用
-            return str(result) if result is not None else "调用成功，tool无返回值"
+            return {
+                "raw": result,
+                "str": str(result) if result is not None else "调用成功，tool无返回值"
+            }
         except Exception as e:
             logger.error(f"调用工具失败：{e}")
-            return f"调用工具失败：{e}"
+            return {"raw": None, "str": f"调用工具失败：{e}"}
 
 
     async def chat(self,session_id:str,query:str):
+        # 保存用户消息到 SQLite 历史
+        await asyncio.get_event_loop().run_in_executor(
+            None, self.chat_history.save_user_message, session_id, query
+        )
+
         # 构建初始messages
         messages_list = [{
             "role": "user", "content": query
@@ -234,7 +322,8 @@ class FundAgent:
                     yield format_output(json.dumps({
                         "content": message.content,
                         "reasoning_content": None,
-                        "tool_calling": None
+                        "tool_calling": None,
+                        "tool_call_result": None
                     }))
 
                 # 调用工具时，不会返回reasoning_content
@@ -243,7 +332,8 @@ class FundAgent:
                     yield format_output(json.dumps({
                         "content": None,
                         "reasoning_content": message.reasoning_content,
-                        "tool_calling": None
+                        "tool_calling": None,
+                        "tool_call_result": None
                     }))
 
                 if message.tool_calls:
@@ -259,11 +349,18 @@ class FundAgent:
 
             tool_call_list = [func_item for func_item in tool_call_dict.values()]  # 字典的默认遍历结果是key
 
-            if not tool_call_list:  # 没有工具调用和输出[finish]的原因都是一样的：此次输出已经结束，故将llm输出放入向量数据库
+            # 提取助手最终回复（去掉 [finish] 前缀）
+            assistant_reply = full_content[8:] if full_content.startswith('[finish]') else full_content
+
+            if not tool_call_list:  # 没有工具调用和输出[finish]的原因都是一样的：此次输出已经结束
                 self.memory.add_conversation(session_id=session_id, user_query=query, agent_response=str(messages_list[1:]))
+                await asyncio.get_event_loop().run_in_executor(None, self.chat_history.save_assistant_message, session_id, assistant_reply.strip())
+                await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
                 break
             elif full_content.startswith('[finish]'):
                 self.memory.add_conversation(session_id=session_id, user_query=query, agent_response=str(messages_list[1:]))
+                await asyncio.get_event_loop().run_in_executor(None, self.chat_history.save_assistant_message, session_id, assistant_reply.strip())
+                await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
                 break
             else:
                 # 将AI回复与tool调用信息压入对话历史，message.tool_calls可能为None
@@ -297,21 +394,41 @@ class FundAgent:
                         yield format_output(json.dumps({
                             "content": None,
                             "reasoning_content": None,
-                            "tool_calling": f"{func_setting.name}({func_setting.arguments})"
+                            "tool_calling": f"{func_setting.name}({func_setting.arguments})",
+                            "tool_call_result": None
                         }))
 
-                        if func_setting.name == "agent_add_preference":     #添加用户偏好需要额外注入session_id作为params
+                        if func_setting.name in ("agent_add_preference", "retrieve_tool_data"):
                             params['session_id'] = session_id
 
-                        # 将方法参数固定到方法上，然后加入异步调用集合
-                        # construct_func = functools.partial(real_func, **params)  # functools.partial可提前固定好参数
-                        # tool_tasks.append(loop.run_in_executor(None, construct_func))
                         tool_tasks.append(self._safe_execute_func(real_func, params))
 
                     result = await asyncio.gather(*tool_tasks)  # 将此次需要执行的方法并行执行
                     for i, item in enumerate(result):
-                        # 将tool的调用详细情况压入对话历史，由于func_list和tool的长度一致且一一对应，所以这里借助index拿到调用方法的id
-                        messages_list.append({"role": "tool", "tool_call_id": tool_call_list[i].id, "content": item})
+                        raw = item["raw"]
+                        content = item["str"]
+                        tool_name = tool_call_list[i].function.name
+
+                        # 大数据自动切片存入临时内存
+                        if self._should_chunk(raw):
+                            n_chunks = await loop.run_in_executor(
+                                None, self.tool_memory.store_result,
+                                session_id, tool_name, raw
+                            )
+                            content = summarize_data(raw, tool_name)
+                            logger.info(f"[agent] 工具 {tool_name} 返回大数据，已切片 {n_chunks} 份存入临时内存")
+
+                        messages_list.append({"role": "tool", "tool_call_id": tool_call_list[i].id, "content": content})
+                        yield format_output(json.dumps({
+                            "content": None,
+                            "reasoning_content": None,
+                            "tool_calling": f"{tool_call_list[i].function.name}({tool_call_list[i].function.arguments})",
+                            "tool_call_result": content
+                        }))
+
+        # 对话循环结束（耗尽或异常），兜底释放临时内存
+        await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
+
 
 if __name__ == '__main__':
     agent = FundAgent()

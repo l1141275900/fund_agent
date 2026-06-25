@@ -1,7 +1,9 @@
+import json
 import sqlite3
 import logging
 import asyncio
 from env import sqlite_db_dir
+import akshare_func.main as akshare_func
 
 logger = logging.getLogger("agent")
 class FundCollectionClient:
@@ -13,15 +15,22 @@ class FundCollectionClient:
         self.conn = None
         self.cursor = None
         self.db_dir = db_dir
+
     def _ensure_connection(self):
-        """确保当前线程有连接（每个线程独立创建）"""
+        try:
+            if self.conn is not None:
+                self.conn.execute("SELECT 1")  # 检测连接是否还活着
+        except (sqlite3.ProgrammingError, AttributeError):
+            self.conn = None
+            self.cursor = None
+
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_dir)
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
         return self.conn, self.cursor
 
-    def create_funds_db(self):
+    async def create_funds_db(self):
         """
         创建基金数据库表
         """
@@ -45,6 +54,23 @@ class FundCollectionClient:
         logger.info("基金数据库表创建完成")
         return "success"
 
+    def insert_one_fund_by_code(self,code:str):
+        """
+        根据基金代码插入基金数据
+        """
+        data = asyncio.run(akshare_func.get_akshare_data_by_code(code))    #根据基金代码获取基金数据
+        conn, cursor = self._ensure_connection()
+
+        # (item["基金代码"],item["基金简称"],item["基金类型"],item["基金经理人"],item["基金管理人"],item["净资产规模"],item["管理费率"],item["成立日期/规模"].split("/")[0].strip())
+        if not data:
+            return f"基金代码 {code} 对应的基金数据不存在"
+
+        cursor.execute("INSERT OR REPLACE INTO funds (code,name,fund_type,manager,company,scale,fee_rate,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                       (data["基金代码"],data["基金简称"],data["基金类型"],data["基金经理人"],data["基金管理人"],data["净资产规模"],data["管理费率"],data["成立日期/规模"].split("/")[0].strip()))
+        conn.commit()  #在游标执行完SQL后，需要使用连接对象提交事务，才能将数据写入数据库文件
+        logger.info(f"基金数据 {data} 插入完成")
+        return f"基金数据 {data} 插入完成"
+
     def insert_funds(self,data:list)->str:
         """
         批量插入基金数据
@@ -64,16 +90,24 @@ class FundCollectionClient:
         根据基金代码查询基金数据
         """
         conn, cursor = self._ensure_connection()
-        cursor.execute("SELECT * FROM funds WHERE code = ?",(code,))
-        return cursor.fetchone()
+        cursor.execute("SELECT * FROM funds WHERE code LIKE ?", (f"%{code}%",))
+        result = cursor.fetchall()
+        if result:
+            return [dict(row) for row in result]    # 将结果转换为字典列表，不然是一个sqlite3.Row对象
+
+        return []   #没查到，返回空列表
 
     def query_all_funds(self):
         """
-        查询所有基金数据
+        查询所有用户持有的基金数据
         """
         conn, cursor = self._ensure_connection()
         cursor.execute("SELECT * FROM funds")
-        return cursor.fetchall()
+        result = cursor.fetchall()
+
+        if result:
+            return [dict(row) for row in result]    # 将结果转换为字典列表
+        return []
 
     def query_funds_by_one_attr(self,attr:str,value:str):
         """
@@ -81,9 +115,12 @@ class FundCollectionClient:
         """
         conn, cursor = self._ensure_connection()
         cursor.execute(f"SELECT * FROM funds WHERE {attr} LIKE ?", ("%" + value + "%",))
+        result = cursor.fetchall()
         # ("%"+value+"%")表示模糊查询，%表示任意字符
         # fetchall()表示查询所有结果，fetchone()表示查询第一个结果
-        return cursor.fetchall()
+        if result:
+            return [dict(row) for row in result]    # 将结果转换为字典列表
+        return []
 
     def update_funds(self,code,data:dict):
         """
@@ -131,8 +168,11 @@ class FundCollectionClient:
         return "success"
 
 
-async def main():
-    pass
+def main():
+    fund_client = FundCollectionClient()
+    fund_client.create_funds_db()
+    result = fund_client.insert_one_fund_by_code("011041")
+    print(result)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()

@@ -25,6 +25,13 @@ kb/
 knowledge/chroma.sqlite3
 knowledge/e4dc8dcb-bf20-42e2-9a40-72fcf5d07d18/
 
+# Tool memory ChromaDB data (generated at runtime)
+tool_memory/
+
+# Markdown files (except README)
+*.md
+!/README.md
+
 # Sub-project: 资源搜索 - virtual env, config, data
 资源搜索/.venv/
 资源搜索/.claude/

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基金分析助手</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <span class="header-title">基金分析助手</span>
+  <div class="header-right">
+    <span class="session-label" id="sessionDisplay" title="点击重置会话">会话: ...</span>
+    <button class="btn btn-outline btn-sm" id="resetSessionBtn">新对话</button>
+    <button class="btn btn-primary btn-sm" id="toggleHoldingsBtn">持仓管理</button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- 左侧：对话历史 -->
+  <aside class="sidebar sidebar-left" id="historySidebar">
+    <div class="sidebar-header">
+      <h3>对话历史</h3>
+    </div>
+    <div class="sidebar-body" id="historyList">
+      <p class="muted" style="padding:12px">暂无对话记录</p>
+    </div>
+  </aside>
+
+  <!-- 中间：对话区 -->
+  <main class="chat-main">
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-welcome">
+        <p>你好，我是基金分析助手。可以帮你：</p>
+        <ul>
+          <li>查询和分析基金数据</li>
+          <li>获取基金排名和净值信息</li>
+          <li>解答基金投资相关问题</li>
+        </ul>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <textarea id="chatInput" class="chat-input" placeholder="输入你的问题..." rows="2"></textarea>
+      <button id="sendBtn" class="btn btn-primary btn-send">发送</button>
+    </div>
+  </main>
+
+  <!-- 右侧：每日关注 -->
+  <aside class="sidebar sidebar-right" id="dailySidebar">
+    <div class="sidebar-header">
+      <h3>每日关注</h3>
+      <button class="btn btn-outline btn-sm" id="dailyRefreshBtn" title="手动刷新">↻</button>
+    </div>
+    <div class="sidebar-body" id="dailyBody">
+      <p class="muted" style="padding-top:20px;text-align:center">今日尚未生成<br>每日关注报告</p>
+    </div>
+  </aside>
+</div>
+
+<!-- 持仓面板（滑出） -->
+<div class="panel-overlay" id="holdingsOverlay"></div>
+<aside class="panel" id="holdingsPanel">
+  <div class="panel-header">
+    <h3>基金持仓管理</h3>
+    <button class="btn-close" id="closeHoldingsBtn">&times;</button>
+  </div>
+  <div class="panel-body">
+    <section class="panel-section">
+      <h4>添加基金</h4>
+      <div class="fund-query-row">
+        <input type="text" id="fundCodeInput" class="input" placeholder="输入基金代码，如 011041">
+        <button class="btn btn-primary btn-sm" id="queryFundBtn">查询验证</button>
+      </div>
+      <div id="fundQueryResult" class="fund-query-result"></div>
+      <div id="selectionPool" class="selection-pool"></div>
+      <button class="btn btn-primary" id="submitFundsBtn" style="display:none">提交全部</button>
+    </section>
+    <section class="panel-section">
+      <h4>我的持仓</h4>
+      <div id="holdingsList" class="holdings-list">
+        <p class="muted">加载中...</p>
+      </div>
+    </section>
+  </div>
+</aside>
+
+<!-- Toast 通知 -->
+<div id="toastContainer" class="toast-container"></div>
+<!-- 确认弹窗 -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <p id="confirmMsg"></p>
+    <div class="confirm-actions">
+      <button class="btn btn-outline btn-sm" id="confirmCancelBtn">取消</button>
+      <button class="btn btn-primary btn-sm" id="confirmOkBtn">确认</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="/static/js/toast.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chat.js"></script>
+<script src="/static/js/history.js"></script>
+<script src="/static/js/holdings.js"></script>
+<script src="/static/js/daily.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
