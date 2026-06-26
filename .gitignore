@@ -32,10 +32,9 @@ tool_memory/
 *.md
 !/README.md
 
-# Sub-project: 资源搜索 - virtual env, config, data
+# Sub-project: 资源搜索 - virtual env, config
 资源搜索/.venv/
 资源搜索/.claude/
-资源搜索/data/
 资源搜索/__pycache__/
 
 # OS files
