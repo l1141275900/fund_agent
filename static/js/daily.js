@@ -50,14 +50,19 @@ const Daily = {
 
     try {
       await API.streamChat('daily_focus', this.presetPrompt, {
-        onContent: (text) => { fullContent += text; },
+        onContent: (text) => {
+          fullContent += text;
+          let display = fullContent;
+          if (display.startsWith('[finish]')) display = display.slice(8);
+          body.innerHTML = `<div class="daily-body">${marked.parse(display)}</div>`;
+        },
         onDone: () => {
           this.loading = false;
           const idx = fullContent.indexOf('[finish]');
           const content = idx >= 0 ? fullContent.slice(idx + 8).trim() : fullContent.trim();
           if (content) {
             this.setCache(content);
-            this.render(content);
+            body.innerHTML = `<div class="daily-body">${marked.parse(content)}</div>`;
           } else {
             body.innerHTML = '<p class="muted" style="padding-top:20px;text-align:center">生成失败，请手动刷新</p>';
           }

@@ -1,3 +1,7 @@
+import os
+# 使用 HuggingFace 国内镜像，避免下载慢/超时
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

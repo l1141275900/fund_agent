@@ -5,25 +5,23 @@ import logging
 logger = logging.getLogger("agent")
 
 class Text2SqlClient:
-    def __init__(self,db_dir = BASE_DIR / "funds.db"):
-        if not db_dir.exists():
-            raise FileNotFoundError(f"数据库文件 {db_dir} 不存在")
-
+    def __init__(self, db_dir=None):
+        if db_dir is None:
+            db_dir = BASE_DIR / "sqlite_db" / "funds.db"
         # 连接数据库
-        self.conn = sqlite3.connect(db_dir)
+        self.conn = sqlite3.connect(str(db_dir))
         self.conn.row_factory = sqlite3.Row     #让每行返回dict_like对象
-        # 获取游标（用户告诉游标要执行什么SQL，游标去SQL里干活）
         self.cursor = self.conn.cursor()
 
     # 要暴露给llm
     def get_table_list(self):
         """
-        获取指定表的数据库表结构
+        获取数据库表列表
         """
         try:
             self.cursor.execute("PRAGMA table_list")
             tables = self.cursor.fetchall()
-            return str([table[1] for table in tables if not table[1].startswith('sqlite_')])
+            return [table[1] for table in tables if not table[1].startswith('sqlite_')]
 
         except sqlite3.Error as e:
             logger.error(f"获取表列表失败：{e}")
@@ -37,7 +35,7 @@ class Text2SqlClient:
         try:
             self.cursor.execute(f"PRAGMA table_info({table_name})")     #table_info()函数返回表的列信息，包括列名、数据类型、是否可空、默认值等信息
             columns = self.cursor.fetchall()
-            return str(columns)
+            return [dict(row) for row in columns]
         except sqlite3.Error as e:
             logger.error(f"获取表结构失败：{e}")
             return f"失败：{e}"
@@ -61,7 +59,8 @@ class Text2SqlClient:
         try:
             self.cursor.execute(sql)
             logger.info(f"执行SQL语句 {sql} 完成")
-            return self.cursor.fetchall()
+            result = [dict(row) for row in self.cursor.fetchall()]
+            return result
         except sqlite3.Error as e:
             logger.error(f"执行SQL语句 {sql} 失败：{e}")
             return f"失败：{e}"

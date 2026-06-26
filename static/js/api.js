@@ -36,11 +36,10 @@ const API = {
               if (data.reasoning_content != null && data.reasoning_content !== '') {
                 callbacks.onReasoning && callbacks.onReasoning(data.reasoning_content);
               }
-              if (data.tool_calling != null && data.tool_calling !== '') {
-                callbacks.onToolCalling && callbacks.onToolCalling(data.tool_calling);
-              }
               if (data.tool_call_result != null) {
                 callbacks.onToolResult && callbacks.onToolResult(data.tool_calling, data.tool_call_result);
+              } else if (data.tool_calling != null && data.tool_calling !== '') {
+                callbacks.onToolCalling && callbacks.onToolCalling(data.tool_calling);
               }
             } catch (e) { /* skip malformed JSON */ }
           }

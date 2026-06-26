@@ -4,14 +4,12 @@ const App = {
   sessionKey: 'chat_session_id',
 
   init() {
-    this.initSession();
     History.init();
     Chat.init();
     Holdings.init();
     Daily.init();
 
     document.getElementById('resetSessionBtn').addEventListener('click', () => History.newChat());
-    document.getElementById('sessionDisplay').addEventListener('click', () => History.newChat());
   },
 
   getSessionId() {
@@ -25,7 +23,6 @@ const App = {
 
   setSessionId(id) {
     localStorage.setItem(this.sessionKey, id);
-    this.initSession();
   },
 
   resetSession() {
@@ -40,13 +37,6 @@ const App = {
           <li>解答基金投资相关问题</li>
         </ul>
       </div>`;
-  },
-
-  initSession() {
-    const id = this.getSessionId();
-    const display = document.getElementById('sessionDisplay');
-    display.textContent = '会话: ' + id.slice(0, 8) + '...';
-    display.title = id;
   },
 
   generateUUID() {

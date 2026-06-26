@@ -16,8 +16,9 @@ from dataclasses import dataclass, field
 from env import BASE_DIR
 from sqlite_db.fund_collection import FundCollectionClient
 import akshare_func.main as akshare_func
-from tool_memory import ToolResultMemory, summarize_data
+from tool_memory import SqliteToolMemory, summarize_data
 from sqlite_db.chat_history import ChatHistoryClient
+from sqlite_db.text2sql import Text2SqlClient
 
 logger = logging.getLogger("agent")
 
@@ -53,7 +54,7 @@ class FundAgent:
         self.memory = AgentMemory()
         self.knowledge_base = KnowledgeInit()
         self.tavily_client = TavilyClient(TAVILY_API_KEY)
-        self.tool_memory = ToolResultMemory()
+        self.sqlite_tool_memory = SqliteToolMemory()
         self.chat_history = ChatHistoryClient()
 
         self.llm = OpenAI(
@@ -160,6 +161,31 @@ class FundAgent:
                 required=["query"]
             ),
             Tool(
+                name="sql_get_tables",
+                description="获取临时数据库中当前会话的所有数据表名称，了解有哪些工具返回的数据可供 SQL 查询。",
+                handler=self.sql_get_tables,
+                properties={},
+                required=[]
+            ),
+            Tool(
+                name="sql_get_schema",
+                description="获取临时数据库中指定表的列结构（列名、类型），用于编写精确的 SQL 查询。",
+                handler=self.sql_get_schema,
+                properties={"table_name": {"type": "string", "description": "表名，从 sql_get_tables 获取"}},
+                required=["table_name"]
+            ),
+            Tool(
+                name="sql_execute_query",
+                description="在临时数据库上执行 SELECT 查询。先调用 sql_get_tables 和 sql_get_schema 了解表结构，再编写 SQL。禁止 INSERT/UPDATE/DELETE/DROP。你可以将LIMIT或OFFSET数值传入参数，但不要在sql中包含。",
+                handler=self.sql_execute_query,
+                properties={
+                    "sql": {"type": "string", "description": "SELECT 查询语句，不要包含 LIMIT/OFFSET"},
+                    "limit": {"type": "integer", "description": "返回行数上限，默认100，最大1000"},
+                    "offset": {"type": "integer", "description": "偏移量，默认0"}
+                },
+                required=["sql", "limit"]
+            ),
+            Tool(
                 name="get_akshare_stock_fund_flow",
                 description="获取股票或板块的行业排行，了解当前市场关注焦点(东方财富网-沪深板块-行业板块-历史行情)",
                 handler=akshare_func.get_akshare_stock_fund_flow,
@@ -233,28 +259,40 @@ class FundAgent:
         return platforms
 
     def retrieve_tool_data(self, session_id: str, query: str, top_k: int = 5) -> str:
-        """从临时内存中检索已存储的工具数据切片。"""
-        results = self.tool_memory.retrieve(session_id, query, top_k)
+        """从临时 SQLite 中检索已存储的工具数据（关键词 LIKE 匹配，无需 embedding）。"""
+        results = self.sqlite_tool_memory.retrieve(session_id, query, top_k)
         if not results:
             return "未在临时内存中找到相关数据，可能已被释放或数据不存在。"
-        return "\n---\n".join(results)
+        return results
+
+    # --- Text2Sql 工具（精确 SQL 查询临时数据） ---
+    def _get_temp_text2sql(self, session_id: str) -> Text2SqlClient:
+        db_path = self.sqlite_tool_memory.get_db_path(session_id)
+        return Text2SqlClient(db_path)
+
+    def sql_get_tables(self, session_id: str) -> str:
+        client = self._get_temp_text2sql(session_id)
+        result = client.get_table_list()
+        client.conn.close()
+        return result
+
+    def sql_get_schema(self, session_id: str, table_name: str) -> str:
+        client = self._get_temp_text2sql(session_id)
+        result = client.get_schema(table_name)
+        client.conn.close()
+        return result
+
+    def sql_execute_query(self, session_id: str, sql: str, limit: int = 100) -> str:
+        client = self._get_temp_text2sql(session_id)
+        result = client.execute_sql_query(sql, limit)
+        client.conn.close()
+        return str(result)
 
     def _tool_handlers(self,tool_name):
         for tool_obj in self.tools:
             if tool_obj.name == tool_name:
                 return tool_obj.handler
         raise KeyError(f"LLM请求了错误的工具:{tool_name}")
-
-    @staticmethod
-    def _should_chunk(raw_data) -> bool:
-        """判断工具返回数据是否需要切片存储。"""
-        if raw_data is None:
-            return False
-        if isinstance(raw_data, list) and len(raw_data) > ToolResultMemory.LARGE_LIST_THRESHOLD:
-            return True
-        if isinstance(raw_data, str) and len(raw_data) > ToolResultMemory.LARGE_STR_THRESHOLD:
-            return True
-        return False
 
     async def _safe_execute_func(self,handler:Callable,params:dict):
         try:
@@ -294,7 +332,7 @@ class FundAgent:
                 messages=[
                     {"role": "system",
                      "content": f"""
-                     你是一个智能问答助手，请你尽可能利用搜索工具来回答用户关于时效性的问题。
+                     你是一个智能基金问答助手，用户是一个基金小白，请你尽可能利用搜索工具来回答用户关于基金的问题，并用专业的语言与通俗的语言结合的方式来回答用户问题，最终目标是让不懂金融术语的用户也能完成基金的持有运营。
 
                      1.你可以同时调用多个tool，每个tool可以调用不止一次
                      2.<strong>当你认为你已经收集了足够的信息后，你的输出应以[finish]为前缀，将你的输出放在[finish]后面</strong>。例如：[finish]*你的回答*
@@ -355,12 +393,14 @@ class FundAgent:
             if not tool_call_list:  # 没有工具调用和输出[finish]的原因都是一样的：此次输出已经结束
                 self.memory.add_conversation(session_id=session_id, user_query=query, agent_response=str(messages_list[1:]))
                 await asyncio.get_event_loop().run_in_executor(None, self.chat_history.save_assistant_message, session_id, assistant_reply.strip())
-                await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
+
+                await asyncio.get_event_loop().run_in_executor(None, self.sqlite_tool_memory.clear_session, session_id)
                 break
             elif full_content.startswith('[finish]'):
                 self.memory.add_conversation(session_id=session_id, user_query=query, agent_response=str(messages_list[1:]))
                 await asyncio.get_event_loop().run_in_executor(None, self.chat_history.save_assistant_message, session_id, assistant_reply.strip())
-                await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
+
+                await asyncio.get_event_loop().run_in_executor(None, self.sqlite_tool_memory.clear_session, session_id)
                 break
             else:
                 # 将AI回复与tool调用信息压入对话历史，message.tool_calls可能为None
@@ -398,7 +438,8 @@ class FundAgent:
                             "tool_call_result": None
                         }))
 
-                        if func_setting.name in ("agent_add_preference", "retrieve_tool_data"):
+                        if func_setting.name in ("agent_add_preference", "retrieve_tool_data",
+                                                "sql_get_tables", "sql_get_schema", "sql_execute_query"):
                             params['session_id'] = session_id
 
                         tool_tasks.append(self._safe_execute_func(real_func, params))
@@ -409,14 +450,15 @@ class FundAgent:
                         content = item["str"]
                         tool_name = tool_call_list[i].function.name
 
-                        # 大数据自动切片存入临时内存
-                        if self._should_chunk(raw):
-                            n_chunks = await loop.run_in_executor(
-                                None, self.tool_memory.store_result,
+                        # 大数据自动存入临时 SQLite（含结构化 list[dict] 和长文本 str，无需 embedding）
+                        if (isinstance(raw, list) and len(raw) > SqliteToolMemory.LARGE_LIST_THRESHOLD) or \
+                           (isinstance(raw, str) and len(raw) > 3000):
+                            n_rows = await loop.run_in_executor(
+                                None, self.sqlite_tool_memory.store_result,
                                 session_id, tool_name, raw
                             )
                             content = summarize_data(raw, tool_name)
-                            logger.info(f"[agent] 工具 {tool_name} 返回大数据，已切片 {n_chunks} 份存入临时内存")
+                            logger.info(f"[agent] 工具 {tool_name} 返回大数据，{n_rows} 行已存 SQLite")
 
                         messages_list.append({"role": "tool", "tool_call_id": tool_call_list[i].id, "content": content})
                         yield format_output(json.dumps({
@@ -427,7 +469,7 @@ class FundAgent:
                         }))
 
         # 对话循环结束（耗尽或异常），兜底释放临时内存
-        await asyncio.get_event_loop().run_in_executor(None, self.tool_memory.clear_session, session_id)
+        await asyncio.get_event_loop().run_in_executor(None, self.sqlite_tool_memory.clear_session, session_id)
 
 
 if __name__ == '__main__':
