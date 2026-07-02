@@ -28,14 +28,22 @@ knowledge/e4dc8dcb-bf20-42e2-9a40-72fcf5d07d18/
 # Tool memory ChromaDB data (generated at runtime)
 tool_memory/
 
-# Markdown files (except README)
+# Markdown files (except README and parsed knowledge data)
 *.md
 !/README.md
+!资源搜索/data/investment_masters_parsed/**/*.md
 
-# Sub-project: 资源搜索 - virtual env, config
+# Generated runtime data
+agents/memory/
+agents/tool_data/
+master_knowledge_base/db/
+tmp_pdf_scan/
+
+# Sub-project: 资源搜索 - virtual env, config, raw PDFs
 资源搜索/.venv/
 资源搜索/.claude/
 资源搜索/__pycache__/
+资源搜索/data/investment_masters/
 
 # OS files
 Thumbs.db

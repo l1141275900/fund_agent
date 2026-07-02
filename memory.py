@@ -70,5 +70,8 @@ class AgentMemory:
             n_results=top_k,
             where={"session_id":session_id}
         )
+        logger.info(f"对话历史：{result['documents'][0]}")
+        if not result["documents"][0]:
+            return []
         return result["documents"][0]
 

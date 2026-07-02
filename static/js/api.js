@@ -29,17 +29,18 @@ const API = {
             try {
               const data = JSON.parse(jsonStr);
               if (data.content != null && data.content !== '') {
-                callbacks.onContent && callbacks.onContent(data.content);
+                callbacks.onContent && callbacks.onContent(data.content, data.agent_name || 'main_agent');
                 // 让出事件循环，浏览器得以在 token 之间重绘，实现流式输出
                 await new Promise(r => setTimeout(r, 0));
               }
               if (data.reasoning_content != null && data.reasoning_content !== '') {
-                callbacks.onReasoning && callbacks.onReasoning(data.reasoning_content);
+                callbacks.onReasoning && callbacks.onReasoning(data.reasoning_content, data.agent_name || 'main_agent');
               }
               if (data.tool_call_result != null) {
-                callbacks.onToolResult && callbacks.onToolResult(data.tool_calling, data.tool_call_result);
+                callbacks.onToolResult && callbacks.onToolResult(data.tool_calling, data.tool_call_result, data.agent_name || 'main_agent');
               } else if (data.tool_calling != null && data.tool_calling !== '') {
-                callbacks.onToolCalling && callbacks.onToolCalling(data.tool_calling);
+                const isDelegate = typeof data.tool_calling === 'string' && data.tool_calling.startsWith('delegate_');
+                callbacks.onToolCalling && callbacks.onToolCalling(data.tool_calling, data.agent_name || 'main_agent', isDelegate);
               }
             } catch (e) { /* skip malformed JSON */ }
           }

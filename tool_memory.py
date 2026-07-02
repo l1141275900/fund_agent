@@ -130,15 +130,24 @@ class SqliteToolMemory:
     def _safe_table_name(tool_name: str) -> str:
         return "t_" + re.sub(r'[^a-zA-Z0-9_一-鿿]', '_', tool_name)[:50]
 
-    def store_result(self, session_id: str, tool_name: str, raw_data: list) -> int:
-        """将 list[dict] 存入 SQLite 表，返回行数。"""
-        if not raw_data or not isinstance(raw_data, list):
+    def store_result(self, session_id: str, tool_name: str, raw_data) -> int:
+        """将工具返回数据存入 SQLite。list[dict] 存为表，str 按行切块存入。返回行数。"""
+        if not raw_data:
+            return 0
+
+        # 字符串：按换行切块，每行存为一个 chunk
+        if isinstance(raw_data, str):
+            lines = [l for l in raw_data.split("\n") if l.strip()]
+            if not lines:
+                lines = [raw_data]  # 只有一行也存
+            raw_data = [{"content": line} for line in lines]
+
+        if not isinstance(raw_data, list):
             return 0
 
         conn = self._connect(session_id)
         try:
             table = self._safe_table_name(tool_name)
-            # 从第一条记录提取字段名
             sample = raw_data[0]
             if isinstance(sample, dict):
                 columns = list(sample.keys())
