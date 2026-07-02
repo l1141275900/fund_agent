@@ -24,8 +24,3 @@ class Tool:
                 }
             }
         }
-
-
-def knowledge_retriever(self, query: str, top_k: int = 3) -> str:
-    """语义检索知识库，保留在 tools.py 供旧 agent.py 使用"""
-    return self.knowledge_base.knowledge_retriever(query, top_k)

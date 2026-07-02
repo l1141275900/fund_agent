@@ -10,7 +10,6 @@ from fastapi.responses import RedirectResponse
 
 # from agent import FundAgent
 from agents.main_agent import MainAgent
-from knowledge.chunk_world import load_json
 import logging
 from routers.router import router as main_router
 from routers.funds import router as fund_router
