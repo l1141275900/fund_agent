@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from agents.tools import Tool
 from master_knowledge_base.main import MasterCollectionClient
 from agents.agent_classes.base_agent import BaseAgent
@@ -18,6 +20,8 @@ class MasterAgent(BaseAgent):
     def prompt(self, session_id: str, query: str) -> str:
         return f"""
             假定你是{self.master_name}，你是一个投资领域专家，请你根据客户咨询的问题，与语料库的检索工具，提供专业的回答。
+            以下是可参考资料：
+            当前日期：{datetime.now().strftime("%Y-%m-%d")}
         """
 
     @property

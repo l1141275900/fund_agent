@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from agents.tools import Tool
 from agents.agent_classes.orchestrator_agent import OrchestratorAgent
 from .search_agent import SearchAgent
@@ -57,6 +59,7 @@ class MainAgent(OrchestratorAgent):
         你需要尽可能反复多次调用子agent，让多位投资大师之间的方法论进行博弈和辩论，产生思维碰撞，最终产生专业的回答。
         以下为可参考资料：
         对话历史：{self.memory.conversation_retriever(session_id,query,top_k=5)}
+        当前日期：{datetime.now().strftime("%Y-%m-%d")}
         """
 
     @property
